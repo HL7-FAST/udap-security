@@ -104,7 +104,7 @@ public class PriorAuthRule {
     public static boolean populateRulesTable() {
         String cdsLibraryPath = PropertyProvider.getProperty("CDS_library");
         File filePath = new File(cdsLibraryPath);
-
+        // logger.info("filePath: " + cdsLibraryPath);
         File[] topics = filePath.listFiles();
         for (File topic : topics) {
             if (topic.isDirectory()) {

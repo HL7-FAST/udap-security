@@ -9,6 +9,7 @@ import java.security.interfaces.RSAPublicKey;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.RSAPublicKeySpec;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
@@ -17,6 +18,15 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.io.FileInputStream;
+import java.security.Key;
+import java.security.KeyPair;
+import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.cert.Certificate;
+import java.security.interfaces.RSAPublicKey;
+import java.security.interfaces.RSAPrivateKey;
 
 import javax.naming.directory.InvalidAttributeValueException;
 import javax.servlet.http.HttpServletRequest;
@@ -47,13 +57,19 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.view.RedirectView;
+
+
 
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
 
 @CrossOrigin
 @RestController
@@ -65,6 +81,139 @@ public class AuthEndpoint {
 
     static final String INVALID_REQUEST = "invalid_request";
     static final String INVALID_CLIENT = "invalid_client";
+    
+    // for test purposes only, dummy id
+    static final String CLIENT_ID = "FOOBAR";
+
+    @GetMapping(value = "/authorize")
+    public RedirectView authorize(HttpServletRequest request,
+            @RequestParam(name = "scope", required = true) String scope,
+            @RequestParam(name = "state", required = true) String state,
+            @RequestParam(name = "client_id", required = true) String client_id,
+            @RequestParam(name = "idp", required = false) String idp,
+            @RequestParam(name = "username", required = false) String username,
+            @RequestParam(name = "redirect_uri", required = true) String redirect_uri) {
+        logger.warning("We at the start");
+        App.setBaseUrl(Endpoint.getServiceBaseUrl(request));
+        if (idp != null) {
+            logger.warning("We're in the IDP reroute");
+            String idps = App.getDB().readString(Table.IDPID, Collections.singletonMap("url", idp), "url");
+            String idp_client_id = "";
+            if (idps != null && !idps.equals("null")) {
+                logger.warning("I'm here, idp is " + idps);
+                idp_client_id = App.getDB().readString(Table.IDPID, Collections.singletonMap("url", idp), "client_id");
+                String idp_state = UUID.randomUUID().toString();
+                Map<String, Object> idp_state_object = new HashMap<>();
+                idp_state_object.put("id", UUID.randomUUID().toString());
+                idp_state_object.put("client_id", idp_client_id);
+                idp_state_object.put("url", idps);
+                idp_state_object.put("scope", scope);
+                idp_state_object.put("state", idp_state);
+                App.getDB().write(Table.STATE, idp_state_object);
+                Map<String, Object> holder_state_object = new HashMap<>();
+                holder_state_object.put("id", UUID.randomUUID().toString());
+                holder_state_object.put("client_id", client_id);
+                holder_state_object.put("state", state);
+                App.getDB().write(Table.STATE, holder_state_object);
+                String idp_uri_with_params = new String(idp + "/authorize?response_type=code");
+                idp_uri_with_params = idp_uri_with_params + "&state=" + idp_state;
+                idp_uri_with_params = idp_uri_with_params + "&client_id=" + idp_client_id;
+                idp_uri_with_params = idp_uri_with_params + "&scope=openid+udap";
+                idp_uri_with_params = idp_uri_with_params + "&redirect_uri=" + Endpoint.getServiceBaseUrl(request) + "/auth/redirect";
+                logger.warning("idp URI: " + idp_uri_with_params);
+                RedirectView redirectView = new RedirectView();
+                redirectView.setUrl(idp_uri_with_params);
+                return redirectView;
+            }
+        }
+        else if (scope.contains("openid") && scope.contains("udap")) {
+            if (authenticateUser(username)) {
+                logger.warning("We're at the IDP");
+                RedirectView redirectView = new RedirectView();
+                String auth_code = UUID.randomUUID().toString();
+                Map<String, Object> code_object = new HashMap<>();
+                code_object.put("id", UUID.randomUUID().toString());
+                code_object.put("client_id", client_id);
+                code_object.put("code", auth_code);
+                App.getDB().write(Table.AUTHCODE, code_object);
+                String redirect_uri_with_params = redirect_uri + "?code=" + auth_code;
+                redirect_uri_with_params = redirect_uri_with_params + "&state=" + state;
+                redirectView.setUrl(redirect_uri_with_params);
+                return redirectView;
+            }
+        }
+        return null;
+    }
+
+
+    @GetMapping(value = "/redirect")
+    public RedirectView redirect(HttpServletRequest request,
+    @RequestParam(name = "code", required = true) String code,
+    @RequestParam(name = "state", required = true) String state) throws Exception {
+        App.setBaseUrl(Endpoint.getServiceBaseUrl(request));
+        if (stateIsValid(state)) {
+            String idp_id = App.getDB().readString(Table.STATE, Collections.singletonMap("state", state), "client_id");
+            String idp_url = App.getDB().readString(Table.STATE, Collections.singletonMap("state", state), "url");
+            String scope = App.getDB().readString(Table.STATE, Collections.singletonMap("state", state), "scope");
+            String redirect_uri_with_params = idp_url + "/token?";
+            redirect_uri_with_params = redirect_uri_with_params + "grant_type=authorization_code";
+            redirect_uri_with_params = redirect_uri_with_params + "&code=" + code;
+            redirect_uri_with_params = redirect_uri_with_params + "&client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&";
+            redirect_uri_with_params = redirect_uri_with_params + "&scope=system/*.read";
+
+            FileInputStream is = new FileInputStream("pas_keystore.p12");
+
+            KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType());
+            keystore.load(is, "udap-test".toCharArray());
+        
+            String alias = "pas";
+            Key key = keystore.getKey(alias, "udap-test".toCharArray());
+            // if (key instanceof PrivateKey) {
+                // Get certificate of public key
+            Certificate cert = keystore.getCertificate(alias);
+    
+                // Get public key
+            RSAPublicKey publicKey = (RSAPublicKey) cert.getPublicKey();
+    
+                // Return a key pair
+            // }
+            RSAPrivateKey privateKey = (RSAPrivateKey) key;
+            Algorithm algorithmRS = Algorithm.RSA256(publicKey, privateKey);
+            Map<String, Object> headerClaims = new HashMap();
+            headerClaims.put("alg", "rs256");
+            String x5c_certs[] = {new String(Base64.getEncoder().encode(cert.getEncoded()))};
+            // logger.info("format: " + cert.getType());
+            headerClaims.put("x5c", x5c_certs);
+            headerClaims.put("kid", alias);
+            String signed_assertion_jwt = JWT.create()
+            .withIssuer(App.getBaseUrl()+"/auth")
+            .withSubject(idp_id)
+            .withAudience(idp_url+"/token")
+            .withExpiresAt(new Date(new Date().getTime() + 86400000))
+            .withIssuedAt(new Date())
+            .withJWTId(UUID.randomUUID().toString())
+            .withHeader(headerClaims)
+            .sign(algorithmRS);
+            redirect_uri_with_params = redirect_uri_with_params + "&client_assertion=" + signed_assertion_jwt;
+            logger.info("redirect uri: " + redirect_uri_with_params);
+            OkHttpClient client = new OkHttpClient();
+            Request token_request = new Request.Builder().url(redirect_uri_with_params).header("Content-Type", "application/x-www-form-urlencoded").post(RequestBody.create("", null).build();
+            try (Response response = client.newCall(token_request).execute()) {
+                String answer = response.body().string();
+                logger.info("response? " + answer);
+                // JSONObject jsnobject = new JSONObject(answer);
+            } catch (Exception e) {
+                logger.info(
+                        "ERROR: could not obtain token from IDP");
+                logger.log(Level.SEVERE, "Unknown exception occurred", e);
+                return null;
+            }
+            RedirectView redirectView = new RedirectView();
+            redirectView.setUrl(redirect_uri_with_params);
+            return redirectView;
+        }
+        return null;
+    }
 
     @PostMapping(value = "/register", consumes = { MediaType.APPLICATION_JSON_VALUE, "application/fhir+json" })
     public ResponseEntity<String> registerClient(HttpServletRequest request, HttpEntity<String> entity) {
@@ -114,17 +263,19 @@ public class AuthEndpoint {
     @PostMapping(value = "/token")
     public ResponseEntity<String> token(HttpServletRequest request,
             @RequestParam(name = "scope", required = true) String scope,
+            @RequestParam(name = "code", required = true) String code,
             @RequestParam(name = "grant_type", required = true) String grantType,
             @RequestParam(name = "client_assertion_type", required = true) String clientAssertionType,
             @RequestParam(name = "client_assertion", required = true) String token) {
+        logger.info("IN TOKEN!!!!!");
         App.setBaseUrl(Endpoint.getServiceBaseUrl(request));
         final String requestQueryParams = "scope=" + scope + "&grant_type=" + grantType + "&client_assertion_type="
                 + clientAssertionType + "&client_assertion=" + token;
         logger.info("AuthEndpoint::token:" + requestQueryParams);
 
         // Check client_credentials
-        if (!grantType.equals("client_credentials")) {
-            String message = "Invalid grant_type " + grantType + ". Must be client_credentials";
+        if (!grantType.equals("authorization_code")) {
+            String message = "Invalid grant_type " + grantType + ". Must be authorization_code";
             logger.warning("AuthEndpoint::token:" + message);
             Audit.createAuditEvent(AuditEventType.REST, AuditEventAction.E, AuditEventOutcome.MAJOR_FAILURE, null, request, "POST /token" + requestQueryParams);
             return sendError(INVALID_REQUEST, message);
@@ -157,7 +308,9 @@ public class AuthEndpoint {
 
         String clientId = "unknown";
         String jwtHeaderRaw = new String(Base64.getUrlDecoder().decode(jwtParts[0]));
+        logger.info("jwtHeader: " + jwtHeaderRaw);
         String jwtBodyRaw = new String(Base64.getUrlDecoder().decode(jwtParts[1]));
+        logger.info("jwtBody: " + jwtBodyRaw);
         try {
             JSONObject jwtHeader = (JSONObject) new JSONParser().parse(jwtHeaderRaw);
             JSONObject jwtBody = (JSONObject) new JSONParser().parse(jwtBodyRaw);
@@ -167,16 +320,19 @@ public class AuthEndpoint {
             clientId = iss;
             logger.info("AuthEndpoint::alg:" + alg + " kid:" + kid + " iss: " + iss);
 
-            if (!alg.equals("RS384")) {
+            if (!alg.equals("RS256")) {
                 // if (!alg.equals("RS384") || !alg.equals("EC384")) {
-                return sendError(INVALID_REQUEST, "JWT algorithm not supported. Must be RS384 or EC384 (currently unsupported).");
+                return sendError(INVALID_REQUEST, "JWT algorithm not supported. Must be RS256 or EC384 (currently unsupported).");
             }
 
             // Get keys and validate signature
             JSONObject jwks = getJwks(iss);
+
             List<RSAPublicKey> keys = getKeys(jwks, kid);
+            logger.info("key list has length: " + keys.size());
             boolean verified = false;
             for (RSAPublicKey publicKey : keys) {
+                logger.info("in the loop!");
                 if (tokenIsValid(token, publicKey, iss)) {
                     verified = true;
                     break;
@@ -228,6 +384,14 @@ public class AuthEndpoint {
                 .body(JSONObject.toJSONString(response));
     }
 
+
+    private static boolean authenticateUser(String username) {
+        return true;
+    }
+
+    private static boolean stateIsValid(String state) {
+        return true;
+    }
     /**
      * Generate a new auth token using SecureRandom
      * 
@@ -277,7 +441,20 @@ public class AuthEndpoint {
      */
     private static JSONObject getJwks(String clientId) throws ParseException, IOException, InvalidAttributeValueException {
         String jwks = App.getDB().readString(Table.CLIENT, Collections.singletonMap("id", clientId), "jwks");
+        logger.info("jwks: " + jwks);
+        // String[] json_jwks = jwks.substring(1,jwks.length()-1).split(", ");
+        // for (int i=0; i< json_jwks.length; i++) {
+        //     // json_jwsk[i]
+        //     logger.info(json_jwks[i]);
+        //     String[] keyPair = json_jwks[i].split("=");
+        //     keyPair[0] = "\"" + keyPair[0] + "\"";
+        //     keyPair[1] = "\"" + keyPair[1] + "\"";
+        //     json_jwks[i] = keyPair[0] + ": " + keyPair[1];
+        // }
+        jwks = "{\"keys\": [" + jwks + "]}";
+        // logger.info("new jwks: " + jwks);
         if (jwks == null || jwks.equals("null")) {
+            logger.info("something went wrong");
             String jwksUrl = App.getDB().readString(Table.CLIENT, Collections.singletonMap("id", clientId),
                     "jwks_url");
             if (jwksUrl == null) throw new InvalidAttributeValueException();
@@ -306,7 +483,7 @@ public class AuthEndpoint {
         RSAPublicKeySpec publicKeySpec;
         KeyFactory kf = KeyFactory.getInstance("RSA");
         List<RSAPublicKey> validKeys = new ArrayList<>();
-
+        
         // Iterate over all the keys in the jwk set
         JSONArray keys = (JSONArray) jwks.get("keys");
         for (Object i : keys) {
@@ -335,7 +512,8 @@ public class AuthEndpoint {
      */
     private static boolean tokenIsValid(String token, RSAPublicKey publicKey, String clientId) {
         try {
-            Algorithm algorithm = Algorithm.RSA384(publicKey, null);
+            logger.info("checking if token: " + token + " is valid");
+            Algorithm algorithm = Algorithm.RSA256(publicKey, null);
             JWTVerifier verifier = JWT.require(algorithm).withSubject(clientId)
                     .withAudience(App.getBaseUrl() + "/auth/token").build();
             verifier.verify(token);

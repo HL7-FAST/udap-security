@@ -47,6 +47,7 @@ public class Metadata {
 
   @GetMapping(value = "", produces = { MediaType.APPLICATION_JSON_VALUE, "application/fhir+json" })
   public ResponseEntity<String> getMetadata(HttpServletRequest request) {
+    System.out.println("in HEre!!!!");
     if (capabilityStatement == null)
       capabilityStatement = buildCapabilityStatement();
 
@@ -58,6 +59,7 @@ public class Metadata {
 
   @GetMapping(value = "", produces = { MediaType.APPLICATION_XML_VALUE, "application/fhir+xml" })
   public ResponseEntity<String> getMetadataXml(HttpServletRequest request) {
+    System.out.println("in HEre again!!!!");
     if (capabilityStatement == null)
       capabilityStatement = buildCapabilityStatement();
 
@@ -103,7 +105,7 @@ public class Metadata {
     security.setCors(true);
     Extension oauthUris = new Extension("http://fhir-registry.smarthealthit.org/StructureDefinition/oauth-uris");
     // Extension tokenUri = new Extension("token", new UriType("https://localhost:9000/fhir/auth/token"));
-    Extension tokenUri = new Extension("token", new UriType("https://davinci-prior-auth.logicahealth.org/fhir/auth/token"));
+    Extension tokenUri = new Extension("token", new UriType("https://localhost:3000/fhir/auth/token"));
     oauthUris.addExtension(tokenUri);
     security.addExtension(oauthUris);
     rest.setSecurity(security);

@@ -82,4 +82,27 @@ BEGIN TRANSACTION;
         "organization" clob
     );
 
+    CREATE TABLE IF NOT EXISTS IdpId (
+        "id" varchar PRIMARY KEY,
+        "url" varchar DEFAULT NULL,
+        "client_id" varchar DEFAULT NULL,
+        "timestamp" datetime DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS StateVariable (
+        "id" varchar PRIMARY KEY,
+        "state" varchar DEFAULT NULL,
+        "client_id" varchar DEFAULT NULL,
+        "url" varchar DEFAULT NULL,
+        "scope" varchar DEFAULT NULL,
+        "timestamp" datetime DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS AuthCode (
+        "id" varchar PRIMARY KEY,
+        "code" varchar DEFAULT NULL,
+        "client_id" varchar DEFAULT NULL,
+        "timestamp" datetime DEFAULT CURRENT_TIMESTAMP
+    );
+
 COMMIT;

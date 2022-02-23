@@ -5,13 +5,23 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import java.security.KeyStore;
+// import java.security.Key;
+// import java.security.cert.Certificate;
+
 import javax.servlet.http.HttpServletRequest;
 
+import org.json.simple.JSONObject;
+import org.json.JSONArray;
+
+
+import com.nimbusds.jose.jwk.JWK;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -35,6 +45,9 @@ import org.hl7.fhir.r4.model.Bundle;
 import org.hl7.fhir.r4.model.Claim;
 import org.hl7.fhir.r4.model.ClaimResponse;
 import org.hl7.fhir.r4.model.AuditEvent.AuditEventAction;
+import org.hl7.fhir.r4.model.Organization;
+import org.hl7.fhir.r4.model.ContactPoint;
+
 
 @CrossOrigin
 @RestController
@@ -84,7 +97,7 @@ public class DebugEndpoint {
   }
 
   @PostMapping("/PopulateDatabaseTestData")
-  public ResponseEntity<String> populateDatabase(HttpServletRequest request) {
+  public ResponseEntity<String> populateDatabase(HttpServletRequest request) throws Exception {
     if (App.isDebugModeEnabled()) {
       String description = "Populate database with test data in debug mode";
       Audit.createAuditEvent(AuditEventType.REST, AuditEventAction.E, AuditEventOutcome.SUCCESS, null, request, description);
@@ -178,7 +191,7 @@ public class DebugEndpoint {
     }
   }
 
-  private ResponseEntity<String> populateDB() {
+  private ResponseEntity<String> populateDB() throws Exception {
     logger.info("DebugEndpoint::Prepopulating database with data");
     String responseData = "Success!";
     HttpStatus status = HttpStatus.OK;
@@ -196,7 +209,28 @@ public class DebugEndpoint {
           "2200-09-10 08:43:38.3");
       writeClaimResponse(getResource("PendedFinalResponse.json"), "f57a4af7-e3b7-475e-9fae-b31cc0319e36",
           "2200-09-10 10:55:03.0");
-
+      Map<String, Object> idp_id = new HashMap<>();
+      idp_id.put("id", "kkkfefedfsfef");
+      idp_id.put("url", "https://localhost:3000/fhir/auth");
+      idp_id.put("client_id", "https://localhost:3000/fhir/auth");
+      App.getDB().write(Table.IDPID, idp_id);
+      Map<String, Object> client_test = new HashMap<>();
+      FileInputStream is = new FileInputStream("pas_keystore.p12");
+      KeyStore keystore = KeyStore.getInstance(KeyStore.getDefaultType());
+      keystore.load(is, "udap-test".toCharArray());
+      JWK jwks = JWK.load(keystore, "pas", "udap-test".toCharArray());
+      // JSONObject jwks = (JSONObject) jwks.toJSONObject();
+      client_test.put("jwks", jwks.toJSONString());
+      logger.info("jwks: " + jwks.toJSONString());
+      client_test.put("id", "https://localhost:3000/fhir/auth");
+      Organization organization = new Organization();
+      organization.setId("https://localhost:3000/fhir/auth");
+      organization.setName("MITRE");
+      ContactPoint telecom = new ContactPoint();
+      telecom.setValue("foo@bar.com");
+      organization.setTelecom(Collections.singletonList(telecom));
+      client_test.put("organization", organization);
+      App.getDB().write(Table.CLIENT, client_test);
       Map<String, Object> dataMap = new HashMap<>();
       dataMap.put("id", "f57a4af7-e3b7-475e-9fae-b31cc0319e36");
       dataMap.put("sequence", "1");

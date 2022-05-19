@@ -197,7 +197,7 @@ public class AuthEndpoint {
             redirect_uri_with_params = redirect_uri_with_params + "&client_assertion=" + signed_assertion_jwt;
             logger.info("redirect uri: " + redirect_uri_with_params);
             OkHttpClient client = new OkHttpClient();
-            Request token_request = new Request.Builder().url(redirect_uri_with_params).header("Content-Type", "application/x-www-form-urlencoded").post(RequestBody.create("", null).build();
+            Request token_request = new Request.Builder().url(redirect_uri_with_params).header("Content-Type", "application/x-www-form-urlencoded").post(RequestBody.create("", null)).build();
             try (Response response = client.newCall(token_request).execute()) {
                 String answer = response.body().string();
                 logger.info("response? " + answer);

@@ -27,7 +27,6 @@ database.trace.db
 
 # Ignore the certificates
 *.crt
-*.p12
 
 # Ignore Mac OS X
 **/.DS_Store

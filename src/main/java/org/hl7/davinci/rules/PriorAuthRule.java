@@ -106,43 +106,45 @@ public class PriorAuthRule {
         File filePath = new File(cdsLibraryPath);
         // logger.info("filePath: " + cdsLibraryPath);
         File[] topics = filePath.listFiles();
-        for (File topic : topics) {
-            if (topic.isDirectory()) {
-                String topicName = topic.getName();
+        if (topics != null) {
+            for (File topic : topics) {
+                if (topic.isDirectory()) {
+                    String topicName = topic.getName();
 
-                // Ignore shared folder and hidden folder
-                if (!topicName.startsWith(".") && !topicName.equalsIgnoreCase("Shared")) {
-                    logger.fine("PriorAuthRule::populateRulesTable:Found topic " + topicName);
+                    // Ignore shared folder and hidden folder
+                    if (!topicName.startsWith(".") && !topicName.equalsIgnoreCase("Shared")) {
+                        logger.fine("PriorAuthRule::populateRulesTable:Found topic " + topicName);
 
-                    // Get the metadata file
-                    for (File file : topic.listFiles()) {
-                        // Consume the metadata file and upload to db
-                        if (file.getName().equalsIgnoreCase("TopicMetadata.json")) {
-                            try {
-                                // Read the file
-                                String content = new String(Files.readAllBytes(file.toPath()));
+                        // Get the metadata file
+                        for (File file : topic.listFiles()) {
+                            // Consume the metadata file and upload to db
+                            if (file.getName().equalsIgnoreCase("TopicMetadata.json")) {
+                                try {
+                                    // Read the file
+                                    String content = new String(Files.readAllBytes(file.toPath()));
 
-                                // Convert to object
-                                ObjectMapper objectMapper = new ObjectMapper();
-                                TopicMetadata metadata = objectMapper.readValue(content, TopicMetadata.class);
+                                    // Convert to object
+                                    ObjectMapper objectMapper = new ObjectMapper();
+                                    TopicMetadata metadata = objectMapper.readValue(content, TopicMetadata.class);
 
-                                // Add each system/code pait to the database
-                                for (Mapping mapping : metadata.getMappings()) {
-                                    for (String code : mapping.getCodes()) {
-                                        String elmFileName = metadata.getTopic() + "PriorAuthRule.elm.xml";
-                                        Map<String, Object> dataMap = new HashMap<String, Object>();
-                                        dataMap.put("system",
-                                                CODE_SYSTEM_SHORT_NAME_TO_FULL_NAME.get(mapping.getCodeSystem()));
-                                        dataMap.put("code", code);
-                                        dataMap.put("topic", topicName);
-                                        dataMap.put("rule", elmFileName);
-                                        if (!App.getDB().write(Table.RULES, dataMap))
-                                            return false;
+                                    // Add each system/code pait to the database
+                                    for (Mapping mapping : metadata.getMappings()) {
+                                        for (String code : mapping.getCodes()) {
+                                            String elmFileName = metadata.getTopic() + "PriorAuthRule.elm.xml";
+                                            Map<String, Object> dataMap = new HashMap<String, Object>();
+                                            dataMap.put("system",
+                                                    CODE_SYSTEM_SHORT_NAME_TO_FULL_NAME.get(mapping.getCodeSystem()));
+                                            dataMap.put("code", code);
+                                            dataMap.put("topic", topicName);
+                                            dataMap.put("rule", elmFileName);
+                                            if (!App.getDB().write(Table.RULES, dataMap))
+                                                return false;
+                                        }
                                     }
+                                } catch (Exception e) {
+                                    logger.log(Level.SEVERE, "PriorAuthRule::populateRulesTable", e);
+                                    return false;
                                 }
-                            } catch (Exception e) {
-                                logger.log(Level.SEVERE, "PriorAuthRule::populateRulesTable", e);
-                                return false;
                             }
                         }
                     }

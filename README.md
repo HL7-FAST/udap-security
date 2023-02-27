@@ -40,7 +40,7 @@ docker build -t hspc/udap-security:latest .
 Run the docker image:
 
 ```
-docker run -p 9000:9000 -it --rm --name udap-security hspc/udap-security:latest
+docker run -p 9000:9000 -it --rm --name fast-udap-security hlseven/fast-udap-security:latest
 ```
 
 If you are building the docker image locally from a MITRE machine you must copy over the BA Certificates to the Docker image. Download the `MITRE BA NPE CA-3` and `MITRE BA ROOT` certs from the [MII](http://www2.mitre.org/tech/mii/pki/). Copy the two files to the root directory of this project.

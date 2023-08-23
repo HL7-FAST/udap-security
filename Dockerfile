@@ -1,4 +1,4 @@
-FROM gradle:6.9.0-jdk11
+FROM gradle:7.4.2-jdk17
 COPY --chown=gradle:gradle . /prior-auth/
 RUN apt-get update         
 RUN apt-get install -y git
